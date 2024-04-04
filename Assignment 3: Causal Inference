@@ -1,0 +1,519 @@
+---
+title: "CS130Assignment3CausalInference"
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-03-20"
+---
+
+My full code for this assignment can be found on GitHub -> 
+https://github.com/katefourie/cs130.git 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk
+```
+
+```{r library import, message=FALSE}
+library(sensemakr)
+library(Synth)
+library(Matching)
+library(rgenoud)
+data("darfur")
+```
+
+# Part I - Matching
+
+**a) Identify the essential elements of the Rubin Causal Model in this context.** 
+**Complete sentences not require. Cover at least 5 elements.**
+
+- *Stable Unit Treatment Value Assumption (SUTVA)*: It must be only unit-level, 
+there should be no 'runover' of the treatment effect to other units that are 
+supposedly unaffected. This means that if person A receives the treatment, 
+person B (who allegedly didn't receive the treatment) should not be impacted 
+by person A receiving the treatment, whether positively or negatively. 
+
+- *Unit-level Causal Effects cannot be directly observed*: Since it is 
+impossible for one individual unit to live in both conditions, it is not 
+possible to measure the treatment effect on the unit level. There are no 
+individual level counterfactuals in this case, but this would be what their 
+attitudes towards peace would be if they did not directly experience violence. 
+
+- *No Causation Without Manipulation*: There needs to be a clear causal 'if' 
+that is well-defined. There needs to be an obvious treatment that is specific 
+and measurable. This includes defining the units clearly and not having a varied 
+level of treatment across units. This means that the treatment cannot be 
+something that is non manipulable like 'weight' or 'height'. In this case, the 
+treatment is being directly harmed. 
+
+- *Average Treatment Effect (ATE)*: The average treatment effect can be 
+estimated by finding the difference between the outcome in the treated versus 
+control conditions. In this context, this is the effect of direct harm on the 
+sentiments towards peace. 
+
+- *Assignment mechanism*: Oftentimes, the assignment mechanism which is used in 
+these models are non-random. They are usually dependent on other confounders. 
+The models can try and account for these confounders as much as possible to try 
+and predict  true treatment effects. 
+
+**b) Express the research question (from the ‘vignette’ linked above). Is it a **
+**causal question? Does it pass Rubin’s standard for causal questions? Explain.**
+
+- The causal question: "Does exposure to direct violence during the Darfur 
+attacks affect subsequent attitudes towards peace?"
+
+- This would, to an extent, be considered a causal question since there are two 
+clear treatments (either exposed to violence or not) and the attitudes towards 
+peace have been quantified. There are clear units, treatments and outcomes. 
+- However, the extent to which is satisfies the SUTVA is questionable. There is 
+definitely the possibility of spill-over effects in this case. Since being 
+'directly harmed' might not necessarily affect one 'unit' in isolation, 
+exclusivity cannot be ensured. For example, those nearby or related to a unit
+who was directly harmed, may experience at least part of the treatment effects 
+due to proximity to someone who was harmed. 
+
+**c) Decide on the predictors you would want to control for. Justify your answer.**
+
+- For this analysis, I have decided to control for "female", "village" and "age" 
+
+- *Female*: As mentioned in the 'Sensemakr' package, there was a 
+disproportionate number of females who were exposed to sexual violence during 
+the attacks, so controlling for this will be important when trying to control 
+for confounding variables whilst matching. 
+
+- *Past Voted*: I have also decided to include whether the people had voted in 
+the previous election. This is because those who had had a say in the previous 
+election might feel more personally impacted by the events.  This may impact 
+the attitudes that they had towards the violence. 
+
+- *Age*: I have decided to include age as a part of this analysis too as the 
+age of respondent may affect the impact that the violence had on their 
+attitudes. For example, a younger person may be more impacted by the violence 
+than an older one simply due to the proportion of their lifetime that the 
+violence has occurred. 
+
+
+**d) Perform propensity score matching without using the Ys. Be sure to estimate **
+**ATT (no other estimand). Be sure to evaluate balance on every variable that you **
+**consider to be an important predictor. What is the smallest (balance-metric) **
+**p-value obtained? Does the matching result meet your balance standard? Explain.**
+
+```{r propensity score matching}
+#first, I would need to create a logistic regression to create a propensity 
+#score model using the predictors above. The Y's in this case are going to be 
+#the 'peacefactor' as this is our dependent variable. 
+reg1 <- glm(directlyharmed ~ female + pastvoted + age, data=darfur, family = binomial)
+summary(reg1)
+darfur$fitted <- predict(reg1, type = "response")
+#now to perform matching:
+match <- Match(Tr = darfur$directlyharmed, X = darfur$fitted, estimand = "ATT",  M=1)
+summary(match)
+mb <- MatchBalance(directlyharmed ~ female + pastvoted + age, data=darfur, match.out = match, nboots = 500)
+```
+
+The balance on all the variables: 
+
+- *'female'*: The balance on this variable improved a lot after matching. The 
+pre-matching p-value was the lowest out of any of them (0.16084) and rises to 
+0.26745 post-matching, this a strong p-value. This means that after matching, 
+the 'artificial control group' has a more similar mean to the treatment group 
+for the 'female' variable. 
+
+- *'pastvoted'*: The balance on this variable did not improve after matching. 
+While the standard mean difference decrease, the p-value decreased from 0.36437 
+to 0.028763, meaning that the means of the groups are less similar than before 
+matching. This means that they are less balanced than before. This could be 
+because the co-variates did not make for a strong logistic model, there could 
+have been an interaction between the co-variates which makes this a bad match. 
+
+- *'age'*: This was the worst matching. The means before matching were quite 
+similar and they were more dissimilar after matching. The p-value dropped from 
+0.48417 to 0.028658, meaning that the treatment and synthetic control are even 
+less similar after matching. This could show that age is not a valuable 
+variable to use as a co-variate, since the distribution of this variable between 
+the treatment and control are no longer similar. Or that there may be interaction 
+between the other co-variates. 
+
+Since the matching only really improved the balance on the 'female' variable, 
+we could either remove the other confounding variables and seek out other 
+potential confounds or we could try and matching using a different method. We
+would ideally what these p-values to be greater than 0.05. 
+Nevertheless, we will use this method for the next section and then move onto 
+genetic matching. 
+
+*e) Even if the balance result does not meet your standard, proceed to estimate the treatment effect, standard error, and p-value. Explain and interpret your results in a few sentences.*
+
+```{r propensity score matching - adding the Ys}
+#then, I will create a variable for the independent variable values
+Y = darfur$peacefactor
+
+#I will then rerun the 'match' function to include the Ys
+match <- Match(Y=Y, Tr = darfur$directlyharmed, X = darfur$fitted, estimand = "ATT", M=1)
+summary(match)
+
+
+```
+As shown in the results above, when the dependent variable is added in (the 
+peace factor, which is a measure of pro-peace attitudes), the estimated average 
+causal effect is 0.047516. This is a positive number, meaning that the effect of 
+directly being harmed is likely to have a positive effect on the peace attitudes
+of these unit. The Abadie-Imbens standard error is 0.021519, this 
+shows the variation in the matching model. The p-value is less that 0.05, 
+meaning there is a significant difference between the average causal effect 
+between the treatment and control group. This means that, using propensity score 
+matching, people who were directly harmed by the violence in Darfur are 4.75%
+more likely to have higher pro-peace attitudes after the conflict, when 
+controlling for their sex, previous voting and age. 
+
+*f) Run sensemakr analysis (using the package, following the example in the vignette) on the matched data and discuss your results. (You must obtain your matched data.)*
+
+```{r sensitivity analysis}
+#this takes the indices for the matched treated and control units
+matched_treat <- match$index.treated
+matched_control <- match$index.control
+#then, it iterates from the darfur data to create the matched data
+matched_data <- darfur[c(matched_treat, matched_control),]
+
+#creating a linear model to use in the sensemakr package
+reg2 <- lm(peacefactor ~ directlyharmed + age + female + pastvoted, data = matched_data)
+  
+#the sense() function then runs a sentivity anlaysis, the kd= shows that a variable would need to be between 1-3 times stronger then the 'female' confounder. 'female' is shown as teh benchmark covariate since it is the strongest confounder.   
+sens <- sensemakr(model = reg2, treatment = "directlyharmed", benchmark_covariates = "female", kd = 1:3)
+sens
+summary(sens)
+```
+The sensemakr package helps us distinguish the robustness value that would be 
+required to reduce the average causal estimate previously found to 0 and the 
+robustness value that would be required to bring the confidence intervals to 0, 
+thereby reducing the estimate to not be distinguishable from 0 (at an alpha 
+level of 0.05). In this case, this is only 5.21% and 3.18%, respectively. 
+
+The coefficient for 'directly_harmed' is 0.03653311, which suggests that a one 
+unit increase in being directly harmed increases the likelihood that this 
+person will have pro-peace attitudes by 3.65%. This is statistically significant 
+since the t-statistic is greater than 1.96 (5.38), which is the critical value 
+for a significance level of 0.05%
+
+This means that an unobserved (unmeasured) covariate would need to be able to
+explain away only 5.21% of the residual variance on both the treatment and the 
+outcome to be able to explain away to observed effect.
+
+This can be explored further using the sensitivity contour plots. 
+
+```{r sensitivty contour plots, echo= FALSE}
+plot(sens)
+```
+
+
+
+Here, the x-axis shows the strength of association between the treatment 
+(directly harmed) and the unmeasured confounders. The y-axis does the same for 
+the outcome (peacefactor) and the unmeasured confounders. Here, the R2 values 
+are very low and fall outside the contour lines. This suggests that the 
+estimated effects would remain significant even when there is an unmeasured 
+variable that is 1, 2 and 3 times stronger than the 'female' variable (which is the 
+most influential of all of the chosen co-variates). 
+
+*g) Repeat steps c-f (above) using genetic matching instead of propensity score matching.*
+```{r genetic matching, echo = FALSE}
+X <- cbind(darfur$female, darfur$pastvoted, darfur$age)
+genout <- GenMatch(Tr = darfur$directlyharmed, X=X, estimand = "ATT", M=1, pop.size = 16)
+mout <- Match(Tr = darfur$directlyharmed, X=X, estimand = "ATT", Weight.matrix = genout)
+summary(mout)
+mb <- MatchBalance(darfur$directlyharmed ~ darfur$female + darfur$pastvoted + darfur$age, match.out = mout, nboots = 500)
+```
+Using the same variables as the propensity score matching, this genetic matching
+model seeks to match between treatment and control groups to acsount for 
+biased treatment assignment. However, instead of using logistic regression, this 
+model does this by using a 'natural selection' approach, where potential matches
+are iterated over until the strongest match is found. 
+
+As can be shown above, this yields higher p-values than the propensity score 
+matching which was previously used. A solution was found by the 3rd generation, 
+with an extremely high lexical fitness. 
+
+The 'female' variable, in contrast to the propensity score matching, actually
+improves the least. While the standard mean difference improves a lot, the 
+p-value only moves from 0.16084 to 0.17955. This is still high enough to say 
+that the two groups are statistically similar but isn't as high as the p-value 
+for the other covariates. 
+
+The 'pastvoted' variable is matched extremely closely between the two conditions. 
+The p-value moves from 0.36437 to 1, which is a perfect match. There is no longer
+any difference between the mean pastvoted in the two groups. 
+
+The 'age' variable does not improve using gen matching, but is still well matched. 
+The standard mean difference decreases drastically but the p-value moves from
+0.48417 to 0.4311 (which is still a high p-value). This could be explained by 
+the improvement in the KS value, which evaluates the difference in the
+distribution between the two groups. This improves all the way from 0.84023 to 1,
+meaning that after matching, the distribution between the two groups is the same. 
+While the means might be slightly less similar, the distributions are more 
+effectively matched. 
+
+```{r genetic matching - adding in the Ys}
+X <- cbind(darfur$female, darfur$pastvoted, darfur$age)
+Y <- darfur$peacefactor
+
+mout_ys <- Match(Y = Y, Tr = darfur$directlyharmed, X=X, estimand = "ATT", Weight.matrix = genout)
+summary(mout_ys)
+
+```
+
+Adding in the Y-values can help us estimate the causal treatment effect. 
+
+In this case, the estimated effect is similar to what was calculated by the 
+propensity score matching. It reveals a positive realtions and it seems that 
+exposure to direct harm increases the subsequent propensity for peace by 4.79%. 
+The Abadie-Imbens standard error and p-value are also very similar to those 
+found from the propensity score matching. 
+
+The cross validation of these matching models helps demonstrate their robustness.
+This can be further evaluated by using the sensitivity analysis. 
+
+```{r genetic matching - sensitivity analysis}
+g_matched_treat <- mout_ys$index.treated
+g_matched_control <- mout_ys$index.control
+g_matched_data <- darfur[c(g_matched_treat, g_matched_control),]
+
+#creating a linear model to use in the sensemakr package
+g_reg <- lm(peacefactor ~ directlyharmed + age + female + pastvoted, data = g_matched_data)
+  
+sens2 <- sensemakr(model = g_reg, treatment = "directlyharmed", benchmark_covariates = "female", kd = 1:3, q = 1, reduce = TRUE)
+sens2
+summary(sens2)
+```
+The coefficient found for 'directly-harmed' in this case is 0.03653311, meaning
+there is a positive relationship between incidence of direct harm and pro-peace
+attitudes. This is also greater than the critical value of 1.96 (5.376). 
+
+An unmeasured and unaccounted for variable would have to explain away 5.69% of 
+the variance in the dependent and independent variances (the direct harm and the 
+peace scores) in order to explain away the observed effect. In order to make this
+statistically insigificant, an unobserved variable (either 1, 2 or 3 times 
+stronger than the 'female' covariate) would have to explain away 3.65% of the 
+variance of the outcome variable (pro-peace attitudes). This can be investigated 
+further using contour plots. 
+
+```{r sensitivty contour plots - genmatch, echo=FALSE}
+plot(sens2)
+```
+As shown in the contour plot above, even if an unobserved variable was present 
+which was one, two or three times stronger than the 'female' co-variate, 
+it would not be able to explain away the variance shown by the model or 
+make the treatment effect 0. 
+
+*h) Repeat step (g), but adding at least 2 additional predictors to your step (g) analysis. You may want to use interaction terms or quadratic terms for this.*
+```{r genetic matching - adding additional predictors (genmatch), message = FALSE}
+#adding an interaction term between age and sex
+interact_agexfemale <- darfur$age*darfur$female
+#adding this to the dataset
+darfur <- cbind(darfur, interact_agexfemale)
+#creating the co-variates and adding in house size as my second variable
+X2 <- cbind(darfur$female, darfur$pastvoted, darfur$age, interact_agexfemale, darfur$hhsize_darfur)
+
+#running a second genetic matching algorithm
+genout2 <- GenMatch(Tr = darfur$directlyharmed, X=X2, estimand = "ATT", M=1, pop.size = 16)
+```
+
+```{r genetic matching - adding additional predictors, Match and MatchBalance}
+
+mout2 <- Match(Tr = darfur$directlyharmed, X=X2, estimand = "ATT", Weight.matrix = genout2)
+summary(mout2)
+mb2 <- MatchBalance(darfur$directlyharmed ~ darfur$female + darfur$pastvoted + darfur$age + interact_agexfemale + darfur$hhsize_darfur, match.out = mout, nboots = 500)
+```
+
+
+For this analysis, I decided to add the interaction term between 'female' and 
+'age' and the variable for house size. 
+
+The interaction term here is based on the fact that younger females might be
+more frequently targetted than older females, or vice versa. Investigating
+the impact of this interaction could help strengthen the power of the model. 
+This variable will only measure the interaction between age for women, since 
+multiplying age by 0 (which is the binary indication for men) will yield a 
+result of 0. 
+
+I also decided to add the house size variable because this may have been a 
+signal of wealth. Investigating the potential role that wealth plays in the 
+potential of being directly harmed is important for this analysis. 
+
+*Analysing the results* 
+As can be seen above, a genetic matching solution was found by the 6th 
+generation, in contrast to the first model where it was found in the 4th 
+generation. This is likely because adding more covariates adds more variance 
+and makes it more difficult to match. 
+
+The previous three covariates (female, pastvoted and age) were all matched in 
+the same way, with the same p-values as the previous genetic matching model.
+
+The interaction term (female*age) improved after matching, with the standard
+mean difference decreasing and the p-value increasing from 0.11173 to 0.19922, 
+meaning the treatment and control distribution of the variables were more 
+similar than before matching. The balance was improved. 
+
+The house size variable did not improve from matching, and were was more 
+balanced between the groups prior to matching. This can be seen by the standard
+mean error increasing and the p-value decreasing from 0.2343 to 0.1907. This 
+is indicative of the means between the two groups become more dissimilar after
+matching. The KS p-value is much lower, meaning the distributions are much 
+more diverse than they previously were. 
+
+
+```{r genetic matching 2 - adding in the Ys}
+
+#adding in the dependent variable for the second genetic matching model
+X2 <- cbind(darfur$female, darfur$pastvoted, darfur$age, interact_agexfemale, darfur$hhsize_darfur)
+Y <- darfur$peacefactor
+
+mout_ys2 <- Match(Y = Y, Tr = darfur$directlyharmed, X=X2, estimand = "ATT", Weight.matrix = genout2)
+summary(mout_ys2)
+
+```
+As can be shown above, this shows a higher treatment effect than my previous 
+(4.79% versus 5.17%). This is positive, showing that the impact of treatment 
+(direct harm) increases the likelihood of pro-peace values by 5,17%. 
+This is increase in effect is potentially due to the addition of the interaction 
+variable which captured more nuance in the sex variable, as women of certain 
+ages may have been more impacted by the treatment. This result is statistically 
+significant since the p-value is lower than 0.05. 
+
+
+```{r genetic matching 2 - sensitivity analysis}
+g_matched_treat2 <- mout_ys2$index.treated
+g_matched_control2 <- mout_ys2$index.control
+g_matched_data2 <- darfur[c(g_matched_treat2, g_matched_control2),]
+
+#creating a linear model to use in the sensemakr package
+g_reg2 <- lm(peacefactor ~ directlyharmed + age + female + pastvoted + interact_agexfemale + hhsize_darfur, data = g_matched_data2)
+  
+sens3 <- sensemakr(model = g_reg2, treatment = "directlyharmed", benchmark_covariates = "female", kd = 1:3, q = 1, reduce = TRUE)
+sens3
+
+```
+The coefficient found for 'directly-harmed' in this case is 0.06874, meaning
+there is a positive relationship between incidence of direct harm and pro-peace
+attitudes. This is a higher coefficeint than any of the previously run regressions. 
+This is also greater than the critical value of 1.96 (4.41509), and the standard
+error is lower than previous regression. 
+
+An unmeasured and unaccounted for variable would have to explain away 10.15% of 
+the variance in the dependent and independent variances (the direct harm and the 
+peace scores) in order to explain away the observed effect. In order to make this
+statistically insignificant, an unobserved variable (either 1, 2 or 3 times 
+stronger than the 'female' covariate) would have to explain away 5.77% of the 
+variance of the outcome variable (pro-peace attitudes). These robustness values
+are higher than any of the other sensitivity analyses that I have previously run, 
+pointing towards the potential strength of this model. This can be investigated 
+further using contour plots. 
+
+```{r sensitivty contour plots - genmatch3, echo=FALSE}
+plot(sens3)
+```
+As expected, this contour plot shows the greatest robustness out of any of the 
+models previously investigated. The covariates are the furtherest away from the 
+0 contour line, meaning that it is highly unlikely that an unmeasured co-variate, 
+even 3x stronger than the 'female' co-variate could explain away the treatment
+effect. 
+
+
+# Part II - Synthetic Controls
+
+I will be creating a Synthetic Control for Baleares (Islas) since my name starts 
+with 'K'. The original data set was put together by Abadie and Gardeazabal (2003)
+and is made up of data from all 17 Spanish regions. Their original work 
+intended to create a synthetic control using these other regions in order to 
+estimate the impact that terrorist activity had on the economic growth of 
+the Basque Country after the late 1960s. 
+
+Since I have no clear research question or treatment in mind, this synthetic 
+control will simply try to create a synthetic Baleares (Islas), using the  
+region's GDP per capita between 1964 to 1969 to predict their GDP per capita 
+between 1970 to 1997. 
+
+```{r synthetic controls, echo = TRUE}
+
+data("basque")
+attach(basque)
+dataprep.out<-
+  dataprep(
+   foo = basque,
+   predictors = c("invest", "school.prim", "school.med", "school.high", "school.post.high", "school.illit"),
+   predictors.op = "mean",
+   dependent = "gdpcap",
+   unit.variable = "regionno",
+   time.variable = "year",
+   special.predictors = list(
+    list("gdpcap",1960:1969,c("mean")), 
+    list("sec.agriculture", seq(1961, 1969, 2), "mean"), # data is available for every two years, from 1961 till 1969
+    list("sec.energy", seq(1961, 1969, 2), "mean"),
+    list("sec.industry", seq(1961, 1969, 2), "mean"),
+    list("sec.construction", seq(1961, 1969, 2), "mean"),
+    list("sec.services.venta", seq(1961, 1969, 2), "mean"),
+    list("sec.services.nonventa", seq(1961, 1969, 2), "mean"),
+    list("popdens", 1969,"mean")), # data is only available for 1969
+   treatment.identifier = "Baleares (Islas)",
+   unit.names.variable = "regionname", # Since I am using the name rather than the number so need to add unit.name.variable
+   controls.identifier = c(2:4, 6:16,18), # Making sure to drop Spain (1), Baleares (Islas) (5), and Basue (17) out of the donor pool
+   time.predictors.prior = 1964:1969,
+   time.optimize.ssr = 1964:1969,
+   time.plot = 1964:1994)
+
+synth.out <- synth(dataprep.out)
+
+```
+
+```{r synthetical controls - tables}
+synth.tables <- synth.tab(
+      dataprep.res = dataprep.out,
+      synth.res = synth.out)
+print(synth.tables)
+
+```
+As can be shown in the tables above, synthetic Baleares (Islas) was composed of
+2 main regions, the first being Cataluna with a weight of 0.575 and the second 
+being Madrid with a weight of 0.394. 
+
+These weights are all positive and add up to 1. This is important as it the 
+synthetic control should not predict possibilities that extrapolate beyond 
+results that have previously been recorded. 
+
+The predictor which received the highest weight was the production of 
+nonmarketable services sector as a percentage of total production, with marketable 
+services being the second most influential predictor variable. This is 
+echoed in the first table as these are the variables which are best balanced
+between the two units. Variables like primary school education and level of 
+literacy have not been as well balanced between the units. 
+
+This can be further investigated by visualing the GDP over time, which can be
+seen below. 
+
+```{r synthetic controls - visualise}
+path.plot(dataprep.res = dataprep.out,synth.res = synth.out)
+
+```
+The synthetic control model relatively closely mirrors Baleares's actual change 
+in GDP per capita over time.  Initially, there's a small trend of overestimating 
+GDP until around 1967, shifting to an increasingly growing underestimation of
+GDP unti 1997. Although, the synthetic control does follow similar peaks and 
+troughs and the real Baleares with a peak around 1974 and another around 1987. 
+These can be investigated further by looking at the gaps. 
+
+
+```{r synthetic controls - visualise - gaps}
+gaps.plot(dataprep.res = dataprep.out,synth.res = synth.out)
+
+```
+
+This gaps graph above shows that there are relatively small gaps betweeen the real
+Baleares and the synthetic control, but that the estimation is least accurate 
+between 1980 and 1990 and becomes more accurate after 1990. 
+
+Further analyses might look into the separate variables during this time period 
+(for example by plotting the nonmarketable service during this time) to see
+if Cataluna and Baleares were potentially outliers in these areas, which mighht
+explain why this region was given such a high weight. 
+
+
+### AI STATEMENT
+
+AI was not used in this assignment. 
